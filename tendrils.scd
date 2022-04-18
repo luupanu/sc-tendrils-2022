@@ -5,7 +5,20 @@
 // - TULVA joka menee kaiken yli?
 // - BASS välillä pois
 
+/////////////////////////////// HOW TO RESTART ///////////////////////////////
+/*
+
+1. Quit SuperCollider, open this file from File -> Open Recent -> tendrils.scd
+2. Make sure the mixer is on (the power switch is located behind the mixer)
+3. Click on the left side of the first bracket '(', it turns red
+4. Ctrl + Enter to start sound
+5. Set the master volume to -6.0dB on the bottom-right corner of SuperCollider
+
+*/
+
 (
+// Server.killAll;
+
 //cleanup
 Pbindef.all.do(_.clear);
 Pdef.all.do(_.clear);
@@ -14,10 +27,12 @@ Pdef.all.do(_.clear);
 ~st_buffers.do(_.free);
 t.stop;
 
-s.options.numWireBufs_(512);
-
 //initialization
 s = Server.local;
+s.options.numWireBufs_(512);
+s.options.device_("Line (ZOOM L-8 Audio)");
+s.options.numOutputBusChannels_(4);
+
 t = TempoClock(54/60).permanent_(true);
 d = TempoClock(54/60);
 s.newBusAllocators;
@@ -39,8 +54,10 @@ s.newBusAllocators;
 ~bass_delay_ctrl = Bus.control(s, 1);
 
 ~lock_t = 0;
+~color = rrand(0, 1);
 
 ~touchdesigner = NetAddr("localhost", 57121);
+~touchdesigner.sendMsg("/osc_port", NetAddr.localAddr.port);
 
 s.waitForBoot({
     //////////////////////////////////// VARIABLES ////////////////////////////////////
@@ -83,10 +100,6 @@ s.waitForBoot({
     });
 
     /////////////////////////////// SYNTHDEFS /////////////////////////////
-    SynthDef(\rampControl, { |fadeTime|
-
-    }).add;
-
     SynthDef(\convolution, { |in, out|
         var signal = In.ar(in, 1);
         Out.ar(out, VSTPlugin.ar(signal!2, 2, id: \convolution));
@@ -134,7 +147,7 @@ s.waitForBoot({
         var buf, env, sig, frames, duration, panned;
 
         // send color to touchdesigner
-        SendReply.kr(t_trig, "/sendColor", [rrand(-1.0, -0.5), rrand(4.0, 5.0)]);
+        SendReply.kr(t_trig, "/sendColor");
 
         frames = BufFrames.kr(bufnum);
         duration = frames/rate.abs/s.sampleRate;
@@ -217,11 +230,11 @@ s.waitForBoot({
         Out.ar(~conv2_bus, sig * rev2send.dbamp);
     }).add;
 
-    SynthDef(\vosc1, { |out, buf=0, numBufs=10, bufpos, freq, gate=1, pan=0, panSpread=0.5, amp=0.2, detune=0.2, ffreq=4000, rq=1, delaysend=(-60), rev0send=(-60), rev2send=(-60), att=0.12, dec=0.6, sus=0.66, rel=0.6, peak=1|
+    SynthDef(\vosc1, { |out, buf=0, numBufs=10, bufpos, freq, gate=1, pan=0, panSpread=0.5, amp=0.2, detune=0.2, ffreq=4000, rq=1, delaysend=(-60), rev0send=(-60), rev2send=(-60), att=0.12, dec=0.6, sus=0.66, rel=0.6, peak=1, doneAction=2|
         var sig, env, filter, detuneCtrl;
 
         // env = EnvGen.ar(Env.adsr(att, dec, sus, rel, peak), gate, doneAction: 2);
-        env = EnvGen.ar(Env.perc(att, rel), gate, doneAction: 2);
+        env = EnvGen.ar(Env.perc(att, rel), gate, doneAction: doneAction);
         detuneCtrl = LFNoise1.kr(0.1!8).bipolar(detune).midiratio;
 
         sig = Saw.ar(freq/2 * detuneCtrl, mul: 0.8)!4;
@@ -252,7 +265,7 @@ s.waitForBoot({
         sig = sig + VOsc.ar(buf+Lag3.kr(bufpos), freq * detuneCtrl, {Rand(0,2pi)}!8);
         sig = Splay.ar(sig, panSpread);
         sig = LeakDC.ar(sig);
-        sig = Balance2.ar(sig[0], sig[1], pan, amp);
+		sig = Balance2.ar(sig[0], sig[1], pan, Lag3.kr(amp, 2));
 
         sig = sig * env;
 
@@ -280,8 +293,6 @@ s.waitForBoot({
 			) * Linen.kr(gate, 0.01, 0.7, 0.3, 2);
         OffsetOut.ar(out, (0*z*amp)!4);
 		}).add;
-
-    s.sync;
 
     //////////////////////////////////// BUFFERS ////////////////////////////////////
     ~buffers = Dictionary();
@@ -319,18 +330,19 @@ s.waitForBoot({
     ~aaltoja = Synth(\looperStereo, [\bufnum, ~buffers["aaltoja"], \out, 0, \amp, 0.001, \hpfreq, 125, \panrate, 0.15], ~synth_grp);
     ~jaapuikko_ranni = Synth(\looperStereo, [\bufnum, ~buffers["jaapuikko_ranni"], \out, 0, \amp, 0.1, \hpfreq, 150, \panrate, 0.08, \pandirection, -1], ~synth_grp);
     ~radio_aaltoa = Synth(\looperStereo, [\bufnum, ~buffers["hyvaa_radio_aaltoa"], \out, 0, \amp, 0.1, \hpfreq, 150], ~synth_grp);
-    ~supertiibet = Synth(\hitsMono, [\out, 0, \amp, 0.75, \rev0send, -20, \rev2send, -12 ], ~synth_grp);
+    ~supertiibet = Synth(\hitsMono, [\out, 0, \amp, 1, \rev0send, -15, \rev2send, -12 ], ~synth_grp);
+	~xylofooni = Synth(\looperStereo, [\bufnum, ~buffers["xylofooni_filtered"], \out, 0, \amp, 0.001, \panrate, 0.16, \pandirection, 1], ~synth_grp);
 
     ~delay = Synth(\delay, [\in, ~del_bus, \out, 0, \amp, 1.2], ~fx_grp);
     //~vosc = Synth(\vosc, [\amp, 0, \bufpos, 8.8, \lffreq, 500], ~synth_grp);
 
     //////////////////////////////////// OSCDEFS ////////////////////////////////////
     OSCdef(\sendColor, { |msg|
-        var color = msg[3];
-        var rampTime = msg[4];
+		var rampTime = rrand(4.0, 5.0);
+		~color = ~color + rrand(0.1, 0.6) % 1;
 
-        ~touchdesigner.sendMsg("/color", color, rampTime);
-        [color, rampTime].postln;
+        ~touchdesigner.sendMsg("/color", ~color, rampTime);
+        //[~color, rampTime].postln;
 
     }, "/sendColor");
 
@@ -343,6 +355,7 @@ s.waitForBoot({
         if ((~lock_t == 0) and: (mean >= 0.47), {
             ~lock_t = 1;
             ~bassTranspose = [-8, -6, -3, 0].choose;
+			~xyloRate = (-7..7).choose.midiratio;
             // ~chosenFreq = [72, 76, 79, 82, 84, 86, 88, 89, 90].wchoose([0.145, 0.145, 0.1175, 0.1175, 0.145, 0.09, 0.09, 0.09, 0.06]).midicps;
             // ~chosenFreq = [24, 28, 31, 34, 36, 38, 40, 41, 42].wchoose([0.145, 0.145, 0.1175, 0.1175, 0.145, 0.09, 0.09, 0.09, 0.06]).midicps; // exprand(23, 40).midicps; // TO-DO: should this be rounded to integer?
             // ~chosenFreq.postln;
@@ -350,6 +363,7 @@ s.waitForBoot({
             if (mean < 0.47, {
                 ~lock_t = 0;
                 ~bassTranspose = 0;
+				~xyloRate = 1;
             });
         });
 
@@ -358,19 +372,22 @@ s.waitForBoot({
         Pdefn(\ctranspose, ~bassTranspose);
 
         ~heart.set(
-            \amp, mean.linexp(0.45, 0.5, 0.05, 0.4),
-            \rate, mean.lincurve(0.465, 0.5, 0.75, 2.4, 2),
+            //\amp, mean.linexp(0.45, 0.5, 0.05, 0.6),
+			\amp, mean.lincurve(0.45, 0.5, 0.15, 0.45, 4),
+            \rate, mean.lincurve(0.465, 0.5, 0.75, 2.6, 2),
             \rev2Send, mean.linexp(0.465, 0.5, -60, -12),
             \lpreq, mean.linexp(0.465, 0.5, 400, 200),
         );
 
         ~pisara.set(
-            \amp, mean.lincurve(0.465, 0.5, 0.001, 1.2, 4),
-            \lpreq, mean.linexp(0.465, 0.5, 500, 10000),
+            \amp, mean.lincurve(0.43, 0.5, 0.001, 1.2, 4),
+            \lpreq, mean.linexp(0.44, 0.5, 500, 10000),
         );
 
         ~aaltoja.set(
-            \amp, mean.linexp(0.465, 0.5, 0.001, 3),
+            //\amp, mean.linexp(0.465, 0.5, 0.001, 3),
+			\amp, mean.lincurve(0.43, 0.5, 0.001, 1.9, 1.5),
+			\lpfreq, mean.lincurve(0.43, 0.5, 100, 20000, 1.5),
             \rate, mean.lincurve(0.465, 0.5, 0.75, 1.75, 2),
         );
 
@@ -380,7 +397,7 @@ s.waitForBoot({
         );
 
         ~radio_aaltoa.set(
-            \amp, mean.linexp(0.465, 0.5, 0.1, 1.5),
+			\amp, mean.lincurve(0.43, 0.5, 0.3, 1.5, 1.5),
             \lpfreq, mean.linexp(0.465, 0.5, 20000, 2500),
         );
 
@@ -389,17 +406,28 @@ s.waitForBoot({
             \hpfreq, mean.linlin(0.465, 0.5, 200, 200),
         );
 
+		~xylofooni.set(
+			//\amp, mean.lincurve(0.465, 0.5, 0.001, 2, 2),
+			//\rate, ~xyloRate,
+			\amp, mean.lincurve(0.47, 0.5, 0.001, 0.55, 2),
+			\rate, ~xyloRate, // mean.lincurve(0.465, 0.5, -7.midiratio, 12.midiratio),
+			\lpfreq, mean.linexp(0.47, 0.5, 10000, 2700+(~xyloRate*5)),
+			\panrate, mean.linexp(0.465, 0.5, 0.04, 0.16*~xyloRate.linlin(-7, 7, 0.25, 1)),
+			\rev0send, mean.linexp(0.47, 0.5, -60, -24),
+			\rev2send, mean.linexp(0.47, 0.5, -60, -24),
+		);
+
         // ~synth_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.001, 0.07, 2);
-        ~synth_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.001, 0.04, 2);
-        ~synth_reverb_ctrl.value = mean.linexp(0.465, 0.5, -22, -16);
-        ~synth_delay_ctrl.value = mean.linexp(0.465, 0.5, -12, -6);
+        ~synth_amp_ctrl.value = mean.lincurve(0.47, 0.5, 0.001, 0.03, 2);
+        ~synth_reverb_ctrl.value = mean.linexp(0.47, 0.5, -18, -12);
+        ~synth_delay_ctrl.value = mean.linexp(0.47, 0.5, -9, -3);
 
         //~bass1_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.001, 0.05, 2);
-        ~bass1_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.001, 0.03, 2);
+        ~bass1_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.001, 0.012, 1);
         //~bass2_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.0005, 0.015, 2);
-        ~bass2_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.0005, 0.01, 2);
-        ~bass_reverb_ctrl.value = mean.lincurve(0.465, 0.5, -12, -6, 2);
-        ~bass_delay_ctrl.value = mean.linexp(0.465, 0.5, -12, -6);
+        ~bass2_amp_ctrl.value = mean.lincurve(0.465, 0.5, 0.0005, 0.013, 1);
+        ~bass_reverb_ctrl.value = mean.lincurve(0.465, 0.5, -18, -12, 2);
+		~bass_delay_ctrl.value = mean.linexp(0.465, 0.5, -18, -12);
 
         /*
         ~vosc.set(
@@ -427,8 +455,6 @@ s.waitForBoot({
     }, "/l0");
 
     //////////////////////////////////// PATTERNS ////////////////////////////////////
-    ~supertiibet_rate = Pgauss(1, 1, inf);
-
     Pbindef(\supertiibet,
         \instrument, \hitsMono,
         \bufnum, Pxrand((~st_buffers[0].bufnum..~st_buffers.wrapAt(-1).bufnum), inf),
@@ -437,14 +463,14 @@ s.waitForBoot({
         \lpfreq, Pbeta(250, 2500, 5, 10, inf), // Pgauss(500, 100, inf),
         \rev0send, Pgauss(-6, 1, inf),
         \time, Pgauss(10, 2, inf),
-        \rate, ~supertiibet_rate,
+        \rate, Pgauss(1, 1, inf),
         \panrate, Pbeta(0.1, 3, 3, 10, inf),
         \t_trig, 1,
-        \callback, { ~send_color.(~supertiibet_rate.asStream.next); },
     );
 
     Pbindef(\leadSynth,
         \instrument, \vosc1,
+		\doneAction, 2,
         \dur, Pwrand([
             Pseq([1/16, 1/16, 1/16], 1),
             Pseq([1/8, 1/8, 1/8, 1/8], 1),
@@ -475,7 +501,7 @@ s.waitForBoot({
         \att, Pbeta(0.5, 2, 10, 10, inf),
         \rel, 2,
         \degree, 1,
-        \ctranspose, Pdefn(\ctranspose), // ~bass_transpose_ctrl.asMap,
+        \ctranspose, Pdefn(\ctranspose),
         \bufpos, 4,
         \scale, Scale.phrygian,
     );
@@ -518,5 +544,18 @@ s.waitForBoot({
 
 )
 
-~convolution0.editor;
-~convolution2.editor;
+/*
+// DONT TOUCH ME
+~path_index = 0;
+
+// CTRL + ENTER TO TOUCH ME
+// START RECORDING
+(
+var path = Platform.recordingsDir ++ Platform.pathSeparator ++ "documentation_" ++ ~path_index ++ ".wav";
+~path_index = ~path_index + 1;
+s.record(path, numChannels: 4);
+)
+
+// CTRL + ENTER TO STOP RECORDING, REMEMBER TO DO THIS!
+s.stopRecording;
+*/
